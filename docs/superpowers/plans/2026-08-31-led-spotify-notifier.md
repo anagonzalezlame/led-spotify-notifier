@@ -839,10 +839,12 @@ python spotify_notifier.py
 ## Notes
 
 - Polls Last.fm every 5 seconds to detect track changes; drives the marquee
-  scroll itself by sending the panel a new frame roughly every 150ms over a
-  single Bluetooth connection kept open for the whole run (the panel's own
-  GIF-looping doesn't animate partial-frame content like scrolling text, so
-  this app-driven approach replaced it).
+  scroll itself by sending the panel a new PNG frame roughly every 300ms
+  over a single Bluetooth connection kept open for the whole run (the
+  panel's own GIF-looping doesn't animate partial-frame content like
+  scrolling text, so this app-driven approach replaced it; 300ms/6px-per-step
+  was calibrated live against the real panel — faster intervals left it
+  stuck on a stale frame with no error raised).
 - Depends on Last.fm's "now playing" scrobble status staying live — if
   scrobbling lags or disconnects, the panel falls back to idle.
 - No automated tests — verified manually against real Spotify playback and
