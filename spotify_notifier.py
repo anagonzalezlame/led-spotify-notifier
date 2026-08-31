@@ -95,10 +95,53 @@ def draw_spotify_logo(draw: ImageDraw.ImageDraw, x: int, y: int, size: int, circ
         )
 
 
+def build_marquee_frames(title: str, artist: str) -> list[Image.Image]:
+    font = ImageFont.load_default()
+    text = f"{title}  -  {artist}"
+    probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    bbox = probe.textbbox((0, 0), text, font=font)
+    text_height = bbox[3] - bbox[1]
+    text_y = (PANEL_HEIGHT - text_height) // 2 - bbox[1]
+
+    strip_width = (bbox[2] - bbox[0]) + MARQUEE_WIDTH
+    strip = Image.new("RGB", (strip_width, PANEL_HEIGHT), BG_COLOR)
+    ImageDraw.Draw(strip).text((MARQUEE_WIDTH, text_y), text, fill=TEXT_COLOR, font=font)
+
+    frames = []
+    for offset in range(0, strip_width, SCROLL_STEP_PX):
+        window = Image.new("RGB", (MARQUEE_WIDTH, PANEL_HEIGHT), BG_COLOR)
+        first_part = strip.crop((offset, 0, min(offset + MARQUEE_WIDTH, strip_width), PANEL_HEIGHT))
+        window.paste(first_part, (0, 0))
+        remaining = MARQUEE_WIDTH - first_part.width
+        if remaining > 0:
+            window.paste(strip.crop((0, 0, remaining, PANEL_HEIGHT)), (first_part.width, 0))
+
+        frame = Image.new("RGB", (PANEL_WIDTH, PANEL_HEIGHT), BG_COLOR)
+        draw_spotify_logo(ImageDraw.Draw(frame), LOGO_MARGIN, (PANEL_HEIGHT - LOGO_SIZE) // 2, LOGO_SIZE, SPOTIFY_GREEN, BG_COLOR)
+        frame.paste(window, (TEXT_START_X, 0))
+        frames.append(frame)
+    return frames
+
+
+def save_marquee_gif(frames: list[Image.Image]) -> Path:
+    frames[0].save(
+        IMG_PATH,
+        save_all=True,
+        append_images=frames[1:],
+        duration=FRAME_DURATION_MS,
+        loop=0,
+        disposal=2,
+    )
+    return IMG_PATH
+
+
 if __name__ == "__main__":
-    img = Image.new("RGB", (LOGO_SIZE * 2 + 10, LOGO_SIZE + 4), (0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    draw_spotify_logo(draw, 2, 2, LOGO_SIZE, SPOTIFY_GREEN, BG_COLOR)
-    draw_spotify_logo(draw, LOGO_SIZE + 8, 2, LOGO_SIZE, DIM_GREEN, IDLE_BG_COLOR)
-    img.resize((img.width * 10, img.height * 10), Image.NEAREST).save(SCRIPT_DIR / "_logo_preview.png")
-    print("saved _logo_preview.png")
+    frames = build_marquee_frames("Bohemian Rhapsody", "Queen")
+    path = save_marquee_gif(frames)
+    preview_frames = [f.resize((PANEL_WIDTH * 8, PANEL_HEIGHT * 8), Image.NEAREST) for f in frames]
+    preview_frames[0].save(
+        SCRIPT_DIR / "_marquee_preview.gif",
+        save_all=True, append_images=preview_frames[1:],
+        duration=FRAME_DURATION_MS, loop=0, disposal=2,
+    )
+    print(f"saved {path} and _marquee_preview.gif, {len(frames)} frames")
