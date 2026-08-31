@@ -149,7 +149,19 @@ def render_idle_frame() -> Path:
     return IDLE_IMG_PATH
 
 
+def send_to_panel(frame_path: Path, led_address: str) -> None:
+    device = pypixelcolor.Client(led_address)
+    try:
+        device.connect()
+        device.send_image(str(frame_path))
+    finally:
+        device.disconnect()
+
+
 if __name__ == "__main__":
+    if not LED_ADDRESS:
+        print("Falta LED_ADDRESS en .env")
+        sys.exit(1)
     path = render_idle_frame()
-    Image.open(path).resize((PANEL_WIDTH * 8, PANEL_HEIGHT * 8), Image.NEAREST).save(SCRIPT_DIR / "_idle_preview.png")
-    print(f"saved {path} and _idle_preview.png")
+    send_to_panel(path, LED_ADDRESS)
+    print("enviado al panel")
