@@ -4,7 +4,7 @@
 
 **Goal:** Build a standalone Python script that polls Last.fm (which the user already scrobbles her Spotify listening to) for the currently playing track and pushes a pixel-art Spotify logo + scrolling song/artist marquee to the 96x16 BLE LED panel, falling back to an idle screen when nothing is playing.
 
-**Architecture:** Single-file script (`spotify_notifier.py`), mirroring the sibling `led-gmail-notifier` project: `.env`-based config, an infinite poll loop, Pillow-rendered frames, `pypixelcolor` for BLE delivery over a single persistent connection held for the script's lifetime. Track-change detection (every 5s) avoids re-hitting Last.fm needlessly; the marquee scroll is driven by the app itself, sending a new frame roughly every 150ms over that one open connection (see Revision note 2).
+**Architecture:** Single-file script (`spotify_notifier.py`), mirroring the sibling `led-gmail-notifier` project: `.env`-based config, an infinite poll loop, Pillow-rendered frames, `pypixelcolor` for BLE delivery over a single persistent connection held for the script's lifetime. Track-change detection (every 5s) avoids re-hitting Last.fm needlessly; the marquee scroll is driven by the app itself, sending a new frame roughly every 300ms over that one open connection (see Revision notes 2 and 3).
 
 **Tech Stack:** Python 3.12, `urllib.request`/`urllib.parse` + `json` (stdlib, for the Last.fm API — matches `gmail_notifier.py`'s weather-call pattern), `Pillow`, `pypixelcolor`.
 
@@ -12,13 +12,16 @@
 
 **Revision note 1 (2026-08-31):** Task 1 was implemented and reviewed while this plan still targeted the Spotify Web API with OAuth (`spotipy`). After Task 1 shipped, the user chose to switch the data source to Last.fm instead (she already scrobbles Spotify there), which needs only an API key — no OAuth. The spec was updated accordingly. Global Constraints and Tasks 2-3 below reflect the Last.fm version; Task 2 also carries a one-time cleanup of the now-stale Spotify-OAuth remnants Task 1 left behind (unused `spotipy` imports, `SCOPE`, `CACHE_PATH`).
 
-**Revision note 2 (2026-08-31):** Tasks 1-7 were implemented and individually reviewed under the original design: `build_marquee_frames` + `save_marquee_gif` assembled the scroll into one looping animated GIF, sent once per track change via `send_to_panel`'s per-call `connect()`/`send_image()`/`disconnect()`. Live end-to-end testing during Task 8's hardware verification found the panel does not animate GIFs whose frames differ only in a small region (exactly the marquee's case) — confirmed across frame counts, durations, and disposal modes; see the spec's revision notes for the full diagnostic trail. Since a solid-color GIF animates fine and a static PNG with text displays fine, and since `connect()` measured ~4.5-4.8s but `send_image()` over an already-open connection measured ~0.1-0.15s, the fix is architectural: drive the scroll from the app itself, sending one PNG per frame over a single persistent connection, instead of relying on the panel to loop a GIF. This reworks Task 5 (drop `save_marquee_gif`, `build_marquee_frames` unchanged), Task 7 (replace per-call connect/disconnect with connect-once/send-many), and Task 8 (the main loop now runs two independent cadences: a 5s Last.fm poll and a ~150ms frame-send tick) — see their rewritten sections below. Tasks 1-6 needed no other changes; their other reviewed code stands.
+**Revision note 2 (2026-08-31):** Tasks 1-7 were implemented and individually reviewed under the original design: `build_marquee_frames` + `save_marquee_gif` assembled the scroll into one looping animated GIF, sent once per track change via `send_to_panel`'s per-call `connect()`/`send_image()`/`disconnect()`. Live end-to-end testing during Task 8's hardware verification found the panel does not animate GIFs whose frames differ only in a small region (exactly the marquee's case) — confirmed across frame counts, durations, and disposal modes; see the spec's revision notes for the full diagnostic trail. Since a solid-color GIF animates fine and a static PNG with text displays fine, and since `connect()` measured ~4.5-4.8s but `send_image()` over an already-open connection measured ~0.1-0.15s, the fix is architectural: drive the scroll from the app itself, sending one PNG per frame over a single persistent connection, instead of relying on the panel to loop a GIF. This reworks Task 5 (drop `save_marquee_gif`, `build_marquee_frames` unchanged), Task 7 (replace per-call connect/disconnect with connect-once/send-many), and Task 8 (the main loop now runs two independent cadences: a 5s Last.fm poll and a frame-send tick) — see their rewritten sections below. Tasks 1-6 needed no other changes; their other reviewed code stands.
+
+**Revision note 3 (2026-08-31):** After Revision note 2's rework shipped and passed code review, live end-to-end testing with the user (still not scrolling) found two more real hardware issues, both fixed by small constant/call changes rather than further restructuring: (1) `send_frame` saved to `IMG_PATH`, a `.gif`-suffixed path inherited from the original design — `Image.save()` without an explicit `format=` infers GIF format from that extension, so every "static PNG" send was actually going out as GIF-format bytes, routing it through the panel's already-proven-unreliable GIF-slot protocol; fixed by passing `format="PNG"` explicitly. (2) Even with real PNGs, the device couldn't keep up with a send every 150ms and appeared to freeze on a stale frame with no error raised; empirically, ~1s/frame produced visible discrete jumps and ~300ms/frame (with `SCROLL_STEP_PX` widened from 2 to 6, so roughly a third as many frames cover the same scroll) produced visible continuous — if unhurried — scrolling, confirmed by the user watching the real panel. `FRAME_INTERVAL_SECONDS = 0.3` and `SCROLL_STEP_PX = 6` replace the original `0.15`/`2`. See Task 7 (rework)'s `send_frame` and Task 8 (rework)'s `FRAME_INTERVAL_SECONDS`, both amended in place below (not re-duplicated in a new revision block, since the change is a value/one-line fix, not a structural one).
 
 ## Global Constraints
 
 - Panel resolution is fixed at 96x16 (`PANEL_WIDTH = 96`, `PANEL_HEIGHT = 16`) — from spec and both sibling projects.
 - Last.fm poll interval is 5 seconds (`POLL_INTERVAL_SECONDS = 5`) — from spec.
-- Panel frame-send interval is ~150ms (`FRAME_INTERVAL_SECONDS = 0.15`) — from spec's revision note, empirically measured against the real device.
+- Panel frame-send interval is ~300ms (`FRAME_INTERVAL_SECONDS = 0.3`) and marquee scroll step is 6px (`SCROLL_STEP_PX = 6`) — from spec's revision note 3, empirically calibrated against the real device (0.15s/2px was too fast for the device to keep up with, confirmed stuck/frozen with no error).
+- Frames sent to the panel MUST be saved with explicit `format="PNG"` — from spec's revision note 3 (the `.gif`-suffixed path was silently being written as real GIF format otherwise, routing sends through the panel's broken GIF-slot handling).
 - Data source is the Last.fm API (`user.getrecenttracks`, public, API-key only) via stdlib `urllib.request` — no OAuth, no `spotipy`, no browser authorization step — from spec.
 - Track "now playing" is determined by the `@attr.nowplaying == "true"` field on the most recent track — from spec.
 - The panel connection is a SINGLE persistent `pypixelcolor.Client` held for the life of the running script — never reconnect per frame — from spec's revision note 2 (measured: reconnecting costs ~4.5-4.8s per call, unusable for animation; sending over an open connection costs ~0.1-0.15s).
@@ -529,16 +532,22 @@ def connect_panel(led_address: str) -> pypixelcolor.Client:
 
 
 def send_frame(device: pypixelcolor.Client, image: Image.Image) -> None:
-    image.save(IMG_PATH)
+    image.save(IMG_PATH, format="PNG")
     device.send_image(str(IMG_PATH))
 ```
 
-`send_frame` always writes to the same reused `IMG_PATH` file (a PNG,
-despite the `.gif`-suggesting name inherited from Task 1's constant — the
-file extension pypixelcolor sees no longer matters since we always send a
-single static frame now, never a multi-frame animation) rather than a fresh
-file per call, since we're sending many times per second and don't need to
-keep history.
+**Correction (2026-08-31, Revision note 3):** the original version of this
+step read `image.save(IMG_PATH)` with no explicit format, on the (wrong)
+assumption that "the file extension pypixelcolor sees no longer matters."
+It does: `Image.save()` infers format from the path's extension when
+`format=` is omitted, and `IMG_PATH` is `.gif`-suffixed (inherited from
+Task 1's constant, back when this really was a GIF), so every "static"
+send was actually being written and transmitted as real GIF-format bytes —
+routing it through the panel's GIF-slot handling, already shown unreliable
+for partial content. The fix is the `format="PNG"` argument shown above.
+`send_frame` still always writes to the same reused `IMG_PATH` file rather
+than a fresh file per call, since we're sending frequently and don't need
+to keep history — only the encoded format changed, not the reuse.
 
 - [ ] **Step 3: Verify against the real panel**
 
@@ -592,8 +601,17 @@ single persistent panel connection from Task 7's rework.
 Add near `POLL_INTERVAL_SECONDS` (Task 1's constants block):
 
 ```python
-FRAME_INTERVAL_SECONDS = 0.15
+FRAME_INTERVAL_SECONDS = 0.3
 ```
+
+**Correction (2026-08-31, Revision note 3):** this originally read `0.15`.
+Live testing found the device can't keep up with a send every 150ms — it
+appeared to freeze on a stale frame with no error raised. `0.3` (300ms) is
+the empirically calibrated value the user confirmed produces visible
+scrolling motion on the real panel. Also widen the scroll step so a full
+scroll still covers the same distance in roughly a third as many frames:
+change `SCROLL_STEP_PX = 2` to `SCROLL_STEP_PX = 6` (this constant lives in
+Task 1's original constants block, not here — update it there).
 
 - [ ] **Step 2: Replace `main` and the final entry point**
 
