@@ -19,6 +19,7 @@ IDLE_IMG_PATH = SCRIPT_DIR / "_spotify_idle.png"
 PANEL_WIDTH = 96
 PANEL_HEIGHT = 16
 POLL_INTERVAL_SECONDS = 5
+FRAME_INTERVAL_SECONDS = 0.15
 
 LOGO_SIZE = 14
 LOGO_MARGIN = 1
@@ -156,50 +157,66 @@ def main() -> None:
         print("Falta configurar LASTFM_API_KEY / LASTFM_USERNAME en .env")
         sys.exit(1)
 
-    print(f"[{datetime.now()}] Last.fm -> LED panel notifier iniciado. Consultando cada {POLL_INTERVAL_SECONDS}s.")
+    try:
+        device = connect_panel(LED_ADDRESS)
+    except Exception as e:
+        print(f"[{datetime.now()}] Error conectando al panel: {e}")
+        sys.exit(1)
+
+    print(
+        f"[{datetime.now()}] Last.fm -> LED panel notifier iniciado. "
+        f"Consultando cada {POLL_INTERVAL_SECONDS}s, panel cada {FRAME_INTERVAL_SECONDS}s."
+    )
 
     last_state = None  # (track_id, is_playing) or (None, False)
+    last_poll = 0.0
+    frames = [Image.open(render_idle_frame())]
+    frame_index = 0
+    panel_error_active = False
 
-    while True:
-        try:
-            now_playing = get_now_playing()
-        except Exception as e:
-            print(f"[{datetime.now()}] Error consultando Last.fm: {e}")
-            now_playing = None
+    try:
+        while True:
+            now = time.monotonic()
 
-        if now_playing and now_playing["is_playing"]:
-            state = (now_playing["track_id"], True)
-        else:
-            state = (None, False)
-
-        if state != last_state:
-            print(f"[{datetime.now()}] Cambio de estado: {state}")
-            try:
-                if state[1]:
-                    frames = build_marquee_frames(now_playing["title"], now_playing["artist"])
-                    frame = frames[0]
-                else:
-                    frame = Image.open(render_idle_frame())
-                device = connect_panel(LED_ADDRESS)
+            if now - last_poll >= POLL_INTERVAL_SECONDS:
+                last_poll = now
                 try:
-                    send_frame(device, frame)
-                finally:
-                    device.disconnect()
-            except Exception as e:
-                print(f"[{datetime.now()}] Error enviando al panel: {e}")
-            else:
-                last_state = state
+                    now_playing = get_now_playing()
+                except Exception as e:
+                    print(f"[{datetime.now()}] Error consultando Last.fm: {e}")
+                    now_playing = None
 
-        time.sleep(POLL_INTERVAL_SECONDS)
+                if now_playing and now_playing["is_playing"]:
+                    state = (now_playing["track_id"], True)
+                else:
+                    state = (None, False)
+
+                if state != last_state:
+                    print(f"[{datetime.now()}] Cambio de estado: {state}")
+                    if state[1]:
+                        frames = build_marquee_frames(now_playing["title"], now_playing["artist"])
+                    else:
+                        frames = [Image.open(render_idle_frame())]
+                    frame_index = 0
+                    last_state = state
+
+            try:
+                send_frame(device, frames[frame_index])
+                if panel_error_active:
+                    print(f"[{datetime.now()}] Panel: conexion recuperada.")
+                    panel_error_active = False
+            except Exception as e:
+                if not panel_error_active:
+                    print(f"[{datetime.now()}] Error enviando al panel: {e}")
+                    panel_error_active = True
+
+            frame_index = (frame_index + 1) % len(frames)
+            time.sleep(FRAME_INTERVAL_SECONDS)
+    except KeyboardInterrupt:
+        print("\nDetenido.")
+    finally:
+        device.disconnect()
 
 
 if __name__ == "__main__":
-    if not LED_ADDRESS:
-        print("Falta LED_ADDRESS en .env")
-        sys.exit(1)
-    device = connect_panel(LED_ADDRESS)
-    try:
-        send_frame(device, Image.open(render_idle_frame()))
-        print("enviado al panel")
-    finally:
-        device.disconnect()
+    main()
