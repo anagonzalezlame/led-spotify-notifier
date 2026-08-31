@@ -123,18 +123,6 @@ def build_marquee_frames(title: str, artist: str) -> list[Image.Image]:
     return frames
 
 
-def save_marquee_gif(frames: list[Image.Image]) -> Path:
-    frames[0].save(
-        IMG_PATH,
-        save_all=True,
-        append_images=frames[1:],
-        duration=FRAME_DURATION_MS,
-        loop=0,
-        disposal=2,
-    )
-    return IMG_PATH
-
-
 def render_idle_frame() -> Path:
     frame = Image.new("RGB", (PANEL_WIDTH, PANEL_HEIGHT), IDLE_BG_COLOR)
     draw = ImageDraw.Draw(frame)
@@ -149,13 +137,15 @@ def render_idle_frame() -> Path:
     return IDLE_IMG_PATH
 
 
-def send_to_panel(frame_path: Path, led_address: str) -> None:
+def connect_panel(led_address: str) -> pypixelcolor.Client:
     device = pypixelcolor.Client(led_address)
-    try:
-        device.connect()
-        device.send_image(str(frame_path))
-    finally:
-        device.disconnect()
+    device.connect()
+    return device
+
+
+def send_frame(device: pypixelcolor.Client, image: Image.Image) -> None:
+    image.save(IMG_PATH)
+    device.send_image(str(IMG_PATH))
 
 
 def main() -> None:
@@ -187,10 +177,14 @@ def main() -> None:
             try:
                 if state[1]:
                     frames = build_marquee_frames(now_playing["title"], now_playing["artist"])
-                    frame_path = save_marquee_gif(frames)
+                    frame = frames[0]
                 else:
-                    frame_path = render_idle_frame()
-                send_to_panel(frame_path, LED_ADDRESS)
+                    frame = Image.open(render_idle_frame())
+                device = connect_panel(LED_ADDRESS)
+                try:
+                    send_frame(device, frame)
+                finally:
+                    device.disconnect()
             except Exception as e:
                 print(f"[{datetime.now()}] Error enviando al panel: {e}")
             else:
@@ -200,7 +194,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if not LED_ADDRESS:
+        print("Falta LED_ADDRESS en .env")
+        sys.exit(1)
+    device = connect_panel(LED_ADDRESS)
     try:
-        main()
-    except KeyboardInterrupt:
-        print("\nDetenido.")
+        send_frame(device, Image.open(render_idle_frame()))
+        print("enviado al panel")
+    finally:
+        device.disconnect()
