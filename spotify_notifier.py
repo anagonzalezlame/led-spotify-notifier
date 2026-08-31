@@ -56,10 +56,7 @@ LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY") or _env.get("LASTFM_API_KEY")
 LASTFM_USERNAME = os.environ.get("LASTFM_USERNAME") or _env.get("LASTFM_USERNAME")
 
 
-if __name__ == "__main__":
-    if not LASTFM_API_KEY or not LASTFM_USERNAME:
-        print("Falta configurar .env (copia .env.example a .env y completa los datos).")
-        sys.exit(1)
+def get_now_playing() -> dict | None:
     params = urllib.parse.urlencode({
         "method": "user.getrecenttracks",
         "user": LASTFM_USERNAME,
@@ -68,4 +65,24 @@ if __name__ == "__main__":
         "limit": 1,
     })
     with urllib.request.urlopen(f"{LASTFM_URL}?{params}", timeout=10) as resp:
-        print(json.loads(resp.read()))
+        data = json.loads(resp.read())
+
+    tracks = data.get("recenttracks", {}).get("track", [])
+    if not tracks:
+        return None
+    track = tracks[0]
+    if track.get("@attr", {}).get("nowplaying") != "true":
+        return None
+
+    title = track["name"]
+    artist = track["artist"]["#text"]
+    return {
+        "track_id": f"{artist}|||{title}",
+        "title": title,
+        "artist": artist,
+        "is_playing": True,
+    }
+
+
+if __name__ == "__main__":
+    print(get_now_playing())
