@@ -19,7 +19,7 @@ IDLE_IMG_PATH = SCRIPT_DIR / "_spotify_idle.png"
 PANEL_WIDTH = 96
 PANEL_HEIGHT = 16
 POLL_INTERVAL_SECONDS = 5
-FRAME_INTERVAL_SECONDS = 0.15
+FRAME_INTERVAL_SECONDS = 0.3
 
 LOGO_SIZE = 14
 LOGO_MARGIN = 1
@@ -34,7 +34,7 @@ TEXT_COLOR = (255, 255, 255)
 IDLE_TEXT_COLOR = (90, 90, 90)
 
 FRAME_DURATION_MS = 80
-SCROLL_STEP_PX = 2
+SCROLL_STEP_PX = 6
 
 
 def load_env(path: Path) -> dict:
@@ -145,7 +145,7 @@ def connect_panel(led_address: str) -> pypixelcolor.Client:
 
 
 def send_frame(device: pypixelcolor.Client, image: Image.Image) -> None:
-    image.save(IMG_PATH)
+    image.save(IMG_PATH, format="PNG")
     device.send_image(str(IMG_PATH))
 
 
