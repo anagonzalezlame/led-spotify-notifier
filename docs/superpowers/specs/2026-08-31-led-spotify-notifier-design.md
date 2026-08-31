@@ -14,26 +14,39 @@ manually (no auto-switching/merging between them).
 
 ### Config (`.env`)
 
-- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — from a Spotify Developer Dashboard app.
-- `SPOTIFY_REDIRECT_URI` — e.g. `http://127.0.0.1:8888/callback`, must match the app's
-  registered redirect URI.
+- `LASTFM_API_KEY` — from a Last.fm API account (read-only, no secret needed).
+- `LASTFM_USERNAME` — the user's Last.fm username (must have Spotify scrobbling
+  connected and already active).
 - `LED_ADDRESS` — same BLE MAC address used by the sibling projects.
 
 `.env.example` and a `README.md` follow the same format as the sibling projects.
 
-### Authentication
+### Data source
 
-Uses the `spotipy` library (`pip install spotipy`) instead of hand-rolled OAuth:
-`spotipy.oauth2.SpotifyOAuth` with scope `user-read-currently-playing
-user-read-playback-state`. On first run it opens the browser for the user to
-authorize; spotipy caches the resulting refresh token to a local cache file
-(`.cache-spotify`, gitignored) so subsequent runs don't prompt again.
+**Revision (2026-08-31):** switched from the Spotify Web API (OAuth) to the
+Last.fm API, because the user already scrobbles her Spotify listening to
+Last.fm. Last.fm's `user.getrecenttracks` method is a public read endpoint
+that needs only an API key — no OAuth, no browser authorization step, no
+refresh-token cache. This trades a dependency on Spotify's own developer
+platform for a dependency on her Last.fm scrobbling staying connected and
+live; if scrobbling ever lags or breaks, "now playing" data breaks with it,
+which is an accepted tradeoff for the simpler setup.
+
+A plain HTTP GET (via `urllib.request`, matching the pattern
+`gmail_notifier.py` already uses for the Open-Meteo weather call — no new
+HTTP library dependency) against
+`https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=<LASTFM_USERNAME>&api_key=<LASTFM_API_KEY>&format=json&limit=1`
+returns the most recent track. Its `@attr.nowplaying == "true"` marks it as
+currently playing; absence of that attribute (or an empty track list) means
+nothing is playing right now.
 
 ### Poll loop
 
-Every 5 seconds, call `sp.current_playback()`. Track identity is the tuple
-`(track_id, is_playing)`. Only re-render and re-send to the panel when this tuple
-changes from the last sent state — avoids redundant BLE writes on every poll.
+Every 5 seconds, fetch the most recent track from Last.fm. Track identity is
+the tuple `(track_id, is_playing)`, where `track_id` is derived from the
+artist+title pair (Last.fm's public API doesn't expose Spotify's own track
+ID). Only re-render and re-send to the panel when this tuple changes from
+the last sent state — avoids redundant BLE writes on every poll.
 
 ### Rendering
 
@@ -56,7 +69,7 @@ Identical pattern to the sibling scripts: `pypixelcolor.Client(LED_ADDRESS)`,
 
 ### Error handling
 
-Matches `gmail_notifier.py`'s style: each poll iteration wraps the Spotify API
+Matches `gmail_notifier.py`'s style: each poll iteration wraps the Last.fm API
 call and the panel send in their own `try/except`, logs a timestamped message on
 failure, and continues the loop rather than crashing.
 
