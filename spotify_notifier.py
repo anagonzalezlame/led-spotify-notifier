@@ -158,10 +158,49 @@ def send_to_panel(frame_path: Path, led_address: str) -> None:
         device.disconnect()
 
 
-if __name__ == "__main__":
+def main() -> None:
     if not LED_ADDRESS:
-        print("Falta LED_ADDRESS en .env")
+        print("Falta configurar LED_ADDRESS en .env")
         sys.exit(1)
-    path = render_idle_frame()
-    send_to_panel(path, LED_ADDRESS)
-    print("enviado al panel")
+    if not LASTFM_API_KEY or not LASTFM_USERNAME:
+        print("Falta configurar LASTFM_API_KEY / LASTFM_USERNAME en .env")
+        sys.exit(1)
+
+    print(f"[{datetime.now()}] Last.fm -> LED panel notifier iniciado. Consultando cada {POLL_INTERVAL_SECONDS}s.")
+
+    last_state = None  # (track_id, is_playing) or (None, False)
+
+    while True:
+        try:
+            now_playing = get_now_playing()
+        except Exception as e:
+            print(f"[{datetime.now()}] Error consultando Last.fm: {e}")
+            now_playing = None
+
+        if now_playing and now_playing["is_playing"]:
+            state = (now_playing["track_id"], True)
+        else:
+            state = (None, False)
+
+        if state != last_state:
+            print(f"[{datetime.now()}] Cambio de estado: {state}")
+            try:
+                if state[1]:
+                    frames = build_marquee_frames(now_playing["title"], now_playing["artist"])
+                    frame_path = save_marquee_gif(frames)
+                else:
+                    frame_path = render_idle_frame()
+                send_to_panel(frame_path, LED_ADDRESS)
+            except Exception as e:
+                print(f"[{datetime.now()}] Error enviando al panel: {e}")
+            else:
+                last_state = state
+
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nDetenido.")
