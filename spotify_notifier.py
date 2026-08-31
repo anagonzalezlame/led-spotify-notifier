@@ -135,13 +135,21 @@ def save_marquee_gif(frames: list[Image.Image]) -> Path:
     return IMG_PATH
 
 
+def render_idle_frame() -> Path:
+    frame = Image.new("RGB", (PANEL_WIDTH, PANEL_HEIGHT), IDLE_BG_COLOR)
+    draw = ImageDraw.Draw(frame)
+    draw_spotify_logo(draw, LOGO_MARGIN, (PANEL_HEIGHT - LOGO_SIZE) // 2, LOGO_SIZE, DIM_GREEN, IDLE_BG_COLOR)
+    font = ImageFont.load_default()
+    text = "Spotify"
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_h = bbox[3] - bbox[1]
+    text_y = (PANEL_HEIGHT - text_h) // 2 - bbox[1]
+    draw.text((TEXT_START_X, text_y), text, fill=IDLE_TEXT_COLOR, font=font)
+    frame.save(IDLE_IMG_PATH)
+    return IDLE_IMG_PATH
+
+
 if __name__ == "__main__":
-    frames = build_marquee_frames("Bohemian Rhapsody", "Queen")
-    path = save_marquee_gif(frames)
-    preview_frames = [f.resize((PANEL_WIDTH * 8, PANEL_HEIGHT * 8), Image.NEAREST) for f in frames]
-    preview_frames[0].save(
-        SCRIPT_DIR / "_marquee_preview.gif",
-        save_all=True, append_images=preview_frames[1:],
-        duration=FRAME_DURATION_MS, loop=0, disposal=2,
-    )
-    print(f"saved {path} and _marquee_preview.gif, {len(frames)} frames")
+    path = render_idle_frame()
+    Image.open(path).resize((PANEL_WIDTH * 8, PANEL_HEIGHT * 8), Image.NEAREST).save(SCRIPT_DIR / "_idle_preview.png")
+    print(f"saved {path} and _idle_preview.png")
