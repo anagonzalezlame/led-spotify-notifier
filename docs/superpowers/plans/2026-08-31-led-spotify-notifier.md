@@ -2,20 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a standalone Python script that polls Spotify for the currently playing track and pushes a pixel-art Spotify logo + scrolling song/artist marquee to the 96x16 BLE LED panel, falling back to an idle screen when nothing is playing.
+**Goal:** Build a standalone Python script that polls Last.fm (which the user already scrobbles her Spotify listening to) for the currently playing track and pushes a pixel-art Spotify logo + scrolling song/artist marquee to the 96x16 BLE LED panel, falling back to an idle screen when nothing is playing.
 
 **Architecture:** Single-file script (`spotify_notifier.py`), mirroring the sibling `led-gmail-notifier` project: `.env`-based config, an infinite poll loop, Pillow-rendered frames, `pypixelcolor` for BLE delivery. Track-change detection avoids redundant BLE writes; looping GIFs are sent once per change and loop on-device.
 
-**Tech Stack:** Python 3.12, `spotipy` (Spotify Web API + OAuth), `Pillow`, `pypixelcolor`.
+**Tech Stack:** Python 3.12, `urllib.request`/`urllib.parse` + `json` (stdlib, for the Last.fm API — matches `gmail_notifier.py`'s weather-call pattern), `Pillow`, `pypixelcolor`.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-led-spotify-notifier-design.md`
+
+**Revision note (2026-08-31):** Task 1 was implemented and reviewed while this plan still targeted the Spotify Web API with OAuth (`spotipy`). After Task 1 shipped, the user chose to switch the data source to Last.fm instead (she already scrobbles Spotify there), which needs only an API key — no OAuth. The spec was updated accordingly. Global Constraints and Tasks 2-3 below reflect the Last.fm version; Task 2 also carries a one-time cleanup of the now-stale Spotify-OAuth remnants Task 1 left behind (unused `spotipy` imports, `SCOPE`, `CACHE_PATH`).
 
 ## Global Constraints
 
 - Panel resolution is fixed at 96x16 (`PANEL_WIDTH = 96`, `PANEL_HEIGHT = 16`) — from spec and both sibling projects.
 - Poll interval is 5 seconds (`POLL_INTERVAL_SECONDS = 5`) — from spec.
-- OAuth scope is exactly `user-read-currently-playing user-read-playback-state` — from spec.
-- Auth uses the `spotipy` library (`SpotifyOAuth`), not hand-rolled OAuth — from spec.
+- Data source is the Last.fm API (`user.getrecenttracks`, public, API-key only) via stdlib `urllib.request` — no OAuth, no `spotipy`, no browser authorization step — from spec.
+- Track "now playing" is determined by the `@attr.nowplaying == "true"` field on the most recent track — from spec.
 - No automated test suite — matches both sibling projects, which have none. Every "test" step below is a manual run + visual/console check, not pytest.
 - This script runs standalone; it must NOT merge with or auto-toggle `led-gmail-notifier` — explicitly out of scope per spec.
 - Single-file script style (`spotify_notifier.py`), matching `gmail_notifier.py`'s shape — no premature splitting into modules.
@@ -132,69 +134,96 @@ git commit -m "Scaffold led-spotify-notifier project"
 
 ---
 
-### Task 2: Spotify Developer app + OAuth client
+### Task 2: Last.fm API config + cleanup of stale Spotify-OAuth remnants
 
 **Files:**
-- Modify: `spotify_notifier.py` (add `get_spotify_client`)
+- Modify: `spotify_notifier.py` (remove unused `spotipy` imports/`SCOPE`/`CACHE_PATH` left over from the pre-revision Task 1; add `LASTFM_URL` constant and `import json`, `import urllib.request`, `import urllib.parse`)
+- Modify: `.env.example` (replace the Spotify keys with the Last.fm ones)
 
 **Interfaces:**
-- Consumes: `_env: dict`, `SCOPE: str`, `CACHE_PATH: Path` (Task 1)
-- Produces: `get_spotify_client() -> Spotify`
+- Consumes: `_env: dict`, `SCRIPT_DIR` (Task 1)
+- Produces: `LASTFM_URL: str`, `LASTFM_API_KEY: str | None`, `LASTFM_USERNAME: str | None` (module-level constants read from env, available to Task 3)
 
-- [ ] **Step 1: Create the Spotify Developer app (manual, in browser)**
+- [ ] **Step 1: Create a Last.fm API account (manual, in browser)**
 
 Guide the user through:
-1. Go to https://developer.spotify.com/dashboard and log in.
-2. Click "Create app". Name: anything (e.g. "LED Panel Notifier"). Redirect URI: `http://127.0.0.1:8888/callback` (must match exactly).
-3. Check the box for the Web API.
-4. Save, then open the app's Settings to copy the **Client ID** and **Client Secret**.
+1. Go to https://www.last.fm/api/account/create and log in with her Last.fm account.
+2. Fill in any contact email and an application name (e.g. "LED Panel Notifier"); no callback URL is required for this use case.
+3. Submit — the page shows an **API key** (and a shared secret, which this project does not need since it only reads public data).
+4. Confirm her Last.fm **username** (visible in her Last.fm profile URL, `last.fm/user/<username>`) has Spotify scrobbling connected and active — check that a track she's currently playing on Spotify shows up on her Last.fm profile page as "Scrobbling now" / "Now playing" within a few seconds.
 
-- [ ] **Step 2: Fill in `.env`**
+- [ ] **Step 2: Fill in `.env.example` and `.env`**
 
-Copy `.env.example` to `.env` and fill in `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback`, and `LED_ADDRESS` (reuse the value from the sibling projects' `.env`).
+Update `.env.example` to:
 
-- [ ] **Step 3: Add `get_spotify_client` to `spotify_notifier.py`**
-
-```python
-def get_spotify_client() -> Spotify:
-    client_id = os.environ.get("SPOTIFY_CLIENT_ID") or _env.get("SPOTIFY_CLIENT_ID")
-    client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET") or _env.get("SPOTIFY_CLIENT_SECRET")
-    redirect_uri = os.environ.get("SPOTIFY_REDIRECT_URI") or _env.get("SPOTIFY_REDIRECT_URI")
-    if not client_id or not client_secret or not redirect_uri:
-        print("Falta configurar .env (copia .env.example a .env y completa los datos).")
-        sys.exit(1)
-
-    auth_manager = SpotifyOAuth(
-        client_id=client_id,
-        client_secret=client_secret,
-        redirect_uri=redirect_uri,
-        scope=SCOPE,
-        cache_path=str(CACHE_PATH),
-    )
-    return Spotify(auth_manager=auth_manager)
+```
+LASTFM_API_KEY=your_api_key_here
+LASTFM_USERNAME=your_lastfm_username_here
+LED_ADDRESS=AA:BB:CC:DD:EE:FF
 ```
 
-- [ ] **Step 4: Verify the OAuth flow manually**
+Then update the real `.env` (not committed) with the actual API key, username, and the `LED_ADDRESS` reused from the sibling projects' `.env`.
 
-Add this temporarily at the bottom of `spotify_notifier.py`, replacing the `skeleton ok` print:
+- [ ] **Step 3: Clean up `spotify_notifier.py`'s imports and constants**
+
+Remove these lines (left over from before the Last.fm revision):
+```python
+from spotipy import Spotify
+from spotipy.oauth2 import SpotifyOAuth
+
+import pypixelcolor
+```
+Replace with:
+```python
+import json
+import urllib.parse
+import urllib.request
+
+import pypixelcolor
+```
+(`pypixelcolor` is still needed for Task 7; only the Spotify-specific imports are dropped.)
+
+Remove the now-unused `CACHE_PATH` constant and the `SCOPE` constant entirely (no OAuth, no scopes, no token cache with Last.fm).
+
+Add, near the other constants:
+```python
+LASTFM_URL = "https://ws.audioscrobbler.com/2.0/"
+LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY") or _env.get("LASTFM_API_KEY")
+LASTFM_USERNAME = os.environ.get("LASTFM_USERNAME") or _env.get("LASTFM_USERNAME")
+```
+(placed after the `_env = load_env(ENV_PATH)` line, same as the existing `LED_ADDRESS` constant).
+
+- [ ] **Step 4: Verify manually**
+
+Temporarily replace the bottom of `spotify_notifier.py`:
 
 ```python
 if __name__ == "__main__":
-    sp = get_spotify_client()
-    print(sp.current_user()["display_name"])
+    if not LASTFM_API_KEY or not LASTFM_USERNAME:
+        print("Falta configurar .env (copia .env.example a .env y completa los datos).")
+        sys.exit(1)
+    params = urllib.parse.urlencode({
+        "method": "user.getrecenttracks",
+        "user": LASTFM_USERNAME,
+        "api_key": LASTFM_API_KEY,
+        "format": "json",
+        "limit": 1,
+    })
+    with urllib.request.urlopen(f"{LASTFM_URL}?{params}", timeout=10) as resp:
+        print(json.loads(resp.read()))
 ```
 
 Run: `python spotify_notifier.py`
-Expected: a browser window opens asking to authorize the app; after accepting, the script prints your Spotify display name. `.cache-spotify` now exists in the project folder. Run it a second time — expected: no browser popup this time (cached token), prints the name immediately.
+Expected: prints a JSON dict containing a `recenttracks` key with a `track` list — no import errors, no HTTP errors. If a song is currently playing on Spotify, the first track in the list has an `"@attr": {"nowplaying": "true"}` field.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spotify_notifier.py
-git commit -m "Add Spotify OAuth client"
+git add spotify_notifier.py .env.example
+git commit -m "Switch to Last.fm API config, drop Spotify OAuth remnants"
 ```
 
-(Do not commit `.env` or `.cache-spotify` — both are gitignored.)
+(Do not commit `.env` — gitignored.)
 
 ---
 
@@ -204,23 +233,37 @@ git commit -m "Add Spotify OAuth client"
 - Modify: `spotify_notifier.py` (add `get_now_playing`)
 
 **Interfaces:**
-- Consumes: `get_spotify_client() -> Spotify` (Task 2)
-- Produces: `get_now_playing(sp: Spotify) -> dict | None` — returns `{"track_id": str, "title": str, "artist": str, "is_playing": bool}` or `None` if nothing is loaded.
+- Consumes: `LASTFM_URL`, `LASTFM_API_KEY`, `LASTFM_USERNAME` (Task 2)
+- Produces: `get_now_playing() -> dict | None` — returns `{"track_id": str, "title": str, "artist": str, "is_playing": bool}` or `None` if nothing is currently playing. No arguments — unlike a client-object API, each call is a self-contained HTTP request.
 
 - [ ] **Step 1: Add `get_now_playing`**
 
 ```python
-def get_now_playing(sp: Spotify) -> dict | None:
-    playback = sp.current_playback()
-    if not playback or not playback.get("item"):
+def get_now_playing() -> dict | None:
+    params = urllib.parse.urlencode({
+        "method": "user.getrecenttracks",
+        "user": LASTFM_USERNAME,
+        "api_key": LASTFM_API_KEY,
+        "format": "json",
+        "limit": 1,
+    })
+    with urllib.request.urlopen(f"{LASTFM_URL}?{params}", timeout=10) as resp:
+        data = json.loads(resp.read())
+
+    tracks = data.get("recenttracks", {}).get("track", [])
+    if not tracks:
         return None
-    item = playback["item"]
-    artists = ", ".join(a["name"] for a in item.get("artists", []))
+    track = tracks[0]
+    if track.get("@attr", {}).get("nowplaying") != "true":
+        return None
+
+    title = track["name"]
+    artist = track["artist"]["#text"]
     return {
-        "track_id": item["id"],
-        "title": item["name"],
-        "artist": artists,
-        "is_playing": playback.get("is_playing", False),
+        "track_id": f"{artist}|||{title}",
+        "title": title,
+        "artist": artist,
+        "is_playing": True,
     }
 ```
 
@@ -230,14 +273,20 @@ Replace the bottom of `spotify_notifier.py`:
 
 ```python
 if __name__ == "__main__":
-    sp = get_spotify_client()
-    print(get_now_playing(sp))
+    print(get_now_playing())
 ```
 
-Run: `python spotify_notifier.py` with nothing playing on any device.
+Run: `python spotify_notifier.py` with nothing playing on Spotify.
 Expected: prints `None`.
-Start playing a song on Spotify (any device logged into your account), run again.
-Expected: prints a dict with the correct `track_id`, `title`, `artist`, and `is_playing: True`. Pause the song, run again — expected `is_playing: False`.
+Start playing a song on Spotify, wait a few seconds (Last.fm "now playing" usually updates within 1-5 seconds of playback starting), run again.
+Expected: prints a dict with the correct `track_id`, `title`, `artist`, and `is_playing: True`. Pause the song and wait a few seconds, run again — expected `None` again (Last.fm drops the `nowplaying` flag on pause).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add spotify_notifier.py
+git commit -m "Add Last.fm now-playing polling wrapper"
+```
 
 - [ ] **Step 3: Commit**
 
@@ -486,7 +535,7 @@ git commit -m "Add panel sender"
 - Modify: `spotify_notifier.py` (add `main`, final `if __name__ == "__main__":` block)
 
 **Interfaces:**
-- Consumes: `get_spotify_client() -> Spotify` (Task 2), `get_now_playing(sp) -> dict | None` (Task 3), `build_marquee_frames(title, artist) -> list[Image.Image]` and `save_marquee_gif(frames) -> Path` (Task 5), `render_idle_frame() -> Path` (Task 6), `send_to_panel(frame_path, led_address) -> None` (Task 7), `LED_ADDRESS`, `POLL_INTERVAL_SECONDS` (Task 1)
+- Consumes: `get_now_playing() -> dict | None` (Task 3), `build_marquee_frames(title, artist) -> list[Image.Image]` and `save_marquee_gif(frames) -> Path` (Task 5), `render_idle_frame() -> Path` (Task 6), `send_to_panel(frame_path, led_address) -> None` (Task 7), `LED_ADDRESS`, `POLL_INTERVAL_SECONDS` (Task 1)
 - Produces: `main() -> None` (entry point; nothing downstream consumes this)
 
 - [ ] **Step 1: Add `main` and the final entry point**
@@ -496,17 +545,19 @@ def main() -> None:
     if not LED_ADDRESS:
         print("Falta configurar LED_ADDRESS en .env")
         sys.exit(1)
+    if not LASTFM_API_KEY or not LASTFM_USERNAME:
+        print("Falta configurar LASTFM_API_KEY / LASTFM_USERNAME en .env")
+        sys.exit(1)
 
-    sp = get_spotify_client()
-    print(f"[{datetime.now()}] Spotify -> LED panel notifier iniciado. Consultando cada {POLL_INTERVAL_SECONDS}s.")
+    print(f"[{datetime.now()}] Last.fm -> LED panel notifier iniciado. Consultando cada {POLL_INTERVAL_SECONDS}s.")
 
     last_state = None  # (track_id, is_playing) or (None, False)
 
     while True:
         try:
-            now_playing = get_now_playing(sp)
+            now_playing = get_now_playing()
         except Exception as e:
-            print(f"[{datetime.now()}] Error consultando Spotify: {e}")
+            print(f"[{datetime.now()}] Error consultando Last.fm: {e}")
             now_playing = None
 
         if now_playing and now_playing["is_playing"]:
@@ -571,10 +622,10 @@ git commit -m "Wire up main poll loop with change detection and error handling"
 ```markdown
 # 🎵 LED Spotify Notifier
 
-A tiny local background script: polls what you're currently playing on Spotify
-and shows a pixel-art Spotify logo plus a scrolling "Song - Artist" marquee on
-a 96x16 BLE LED matrix panel. Falls back to a dim idle screen when nothing is
-playing.
+A tiny local background script: polls Last.fm (which you scrobble your Spotify
+listening to) for what you're currently playing and shows a pixel-art Spotify
+logo plus a scrolling "Song - Artist" marquee on a 96x16 BLE LED matrix panel.
+Falls back to a dim idle screen when nothing is playing.
 
 Runs standalone — it shares the panel with `led-gmail-notifier` but the two are
 never run at the same time; stop one before starting the other.
@@ -582,27 +633,26 @@ never run at the same time; stop one before starting the other.
 ## Setup
 
 ```bash
-pip install spotipy pillow
+pip install pillow
 ```
 
-1. Create an app at the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-   with redirect URI `http://127.0.0.1:8888/callback`.
-2. Copy `.env.example` to `.env` and fill in `SPOTIFY_CLIENT_ID`,
-   `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI`, and `LED_ADDRESS` (same BLE
-   MAC address used by the other panel scripts).
+1. Create an API key at [last.fm/api/account/create](https://www.last.fm/api/account/create)
+   (make sure Spotify scrobbling is connected and active on your Last.fm account).
+2. Copy `.env.example` to `.env` and fill in `LASTFM_API_KEY`,
+   `LASTFM_USERNAME`, and `LED_ADDRESS` (same BLE MAC address used by the
+   other panel scripts).
 3. Run it:
 
 ```bash
 python spotify_notifier.py
 ```
 
-The first run opens a browser to authorize your Spotify account; after that,
-the auth token is cached in `.cache-spotify` and it won't ask again.
-
 ## Notes
 
 - Polls every 5 seconds but only re-sends to the panel when the track or
   play/pause state actually changes.
+- Depends on Last.fm's "now playing" scrobble status staying live — if
+  scrobbling lags or disconnects, the panel falls back to idle.
 - No automated tests — verified manually against real Spotify playback and
   the physical panel.
 ```
