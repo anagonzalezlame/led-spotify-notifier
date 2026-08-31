@@ -98,14 +98,41 @@ the app to drive the scroll itself.
 The script connects once at startup (`pypixelcolor.Client(LED_ADDRESS).connect()`),
 keeps that connection for as long as it runs, and disconnects only in a
 `finally` block on shutdown (`KeyboardInterrupt`) or unrecoverable error.
-Every ~150ms (`FRAME_INTERVAL_SECONDS`), while a track's marquee is active,
-the script writes the next scroll frame to a PNG file and calls
-`device.send_image()` on the already-open connection — this is now how the
-"animation" actually happens: the app drives it frame-by-frame, not the
-panel's own GIF looping. When nothing is playing, the idle frame is (re)sent
-at the same cadence (harmless — sending the same static image repeatedly has
-no visible effect and keeps the logic uniform, avoiding a separate "don't
-resend if unchanged" special case for the idle path).
+Every `FRAME_INTERVAL_SECONDS`, while a track's marquee is active, the
+script writes the next scroll frame to a PNG file (explicit `format="PNG"`
+— see the format revision note below) and calls `device.send_image()` on
+the already-open connection — this is how the "animation" actually happens:
+the app drives it frame-by-frame, not the panel's own GIF looping. When
+nothing is playing, the idle frame is (re)sent at the same cadence
+(harmless — sending the same static image repeatedly has no visible effect
+and keeps the logic uniform, avoiding a separate "don't resend if
+unchanged" special case for the idle path).
+
+**Revision (2026-08-31) — file must be saved as an explicit PNG, and the
+device needs ~300ms per frame, not ~150ms:** two further hardware findings
+after the persistent-connection rework first shipped, both found via live
+testing with the user:
+
+1. The reused frame file was `IMG_PATH` (`_spotify_frame.gif`, inherited
+   from the original GIF-based design). `Image.save(path)` without an
+   explicit `format=` infers the format from the path's extension — so
+   despite containing ordinary single-frame content, it was being written
+   and sent as actual GIF-format bytes, routing every send through the
+   panel's GIF-slot protocol (already shown to not reliably display partial
+   content). Saving explicitly as PNG (`image.save(IMG_PATH, format="PNG")`,
+   or renaming the constant to a `.png` path) fixed this — text became
+   visible immediately once frames were sent as real PNGs.
+2. Even sending correct PNGs, `FRAME_INTERVAL_SECONDS = 0.15` was still too
+   fast: the device could not keep up, and appeared to just freeze on
+   whichever frame it last finished rendering while later sends piled up
+   and got silently dropped/coalesced — no error was raised, so nothing in
+   the code path caught this. Verified empirically: at ~1s per frame the
+   panel visibly stepped through distinct scroll positions; at ~300ms per
+   frame (with `SCROLL_STEP_PX` widened from 2 to 6, so a full scroll needs
+   about a third as many frames) the user confirmed visible, continuous
+   — if unhurried — scrolling motion. **`FRAME_INTERVAL_SECONDS = 0.3` and
+   `SCROLL_STEP_PX = 6` are the calibrated values**, replacing the original
+   guesses of `0.15`/`2`.
 
 ### Error handling
 
