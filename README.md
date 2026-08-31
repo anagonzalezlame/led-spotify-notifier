@@ -11,7 +11,7 @@ never run at the same time; stop one before starting the other.
 ## Setup
 
 ```bash
-pip install pillow
+pip install pillow pypixelcolor
 ```
 
 1. Create an API key at [last.fm/api/account/create](https://www.last.fm/api/account/create)

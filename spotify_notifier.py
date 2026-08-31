@@ -13,7 +13,7 @@ import pypixelcolor
 
 SCRIPT_DIR = Path(__file__).parent
 ENV_PATH = SCRIPT_DIR / ".env"
-IMG_PATH = SCRIPT_DIR / "_spotify_frame.gif"
+IMG_PATH = SCRIPT_DIR / "_spotify_frame.png"
 IDLE_IMG_PATH = SCRIPT_DIR / "_spotify_idle.png"
 
 PANEL_WIDTH = 96
@@ -33,7 +33,6 @@ IDLE_BG_COLOR = (20, 20, 20)
 TEXT_COLOR = (255, 255, 255)
 IDLE_TEXT_COLOR = (90, 90, 90)
 
-FRAME_DURATION_MS = 80
 SCROLL_STEP_PX = 6
 
 
@@ -209,6 +208,14 @@ def main() -> None:
                 if not panel_error_active:
                     print(f"[{datetime.now()}] Error enviando al panel: {e}")
                     panel_error_active = True
+                try:
+                    device.disconnect()
+                except Exception:
+                    pass
+                try:
+                    device = connect_panel(LED_ADDRESS)
+                except Exception:
+                    pass
 
             frame_index = (frame_index + 1) % len(frames)
             time.sleep(FRAME_INTERVAL_SECONDS)

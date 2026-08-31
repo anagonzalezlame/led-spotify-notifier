@@ -141,7 +141,7 @@ Two independent concerns, each handled separately:
   timestamped message on failure, and falls back to treating the state as
   "nothing playing" rather than crashing — matches `gmail_notifier.py`'s
   style.
-- Each panel `send_image()` call (every ~150ms) is wrapped in its own
+- Each panel `send_image()` call (every ~300ms) is wrapped in its own
   `try/except`; a failure is logged (not on every single failed frame if
   they repeat rapidly — see the plan for the exact throttling) and the loop
   continues, attempting to send again next cycle. A failure here does not

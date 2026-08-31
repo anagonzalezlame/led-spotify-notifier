@@ -586,7 +586,7 @@ looping GIF per track change, on a single 5s cadence. Since GIF looping
 doesn't animate on this panel (see Task 7's rework and the spec's revision
 notes), the scroll now has to be driven by the app itself: `main()` runs
 two independent cadences on one `while True` loop — a 5s Last.fm poll
-(unchanged interval) and a ~150ms panel frame-send tick (new) — sharing a
+(unchanged interval) and a ~300ms panel frame-send tick (new) — sharing a
 single persistent panel connection from Task 7's rework.
 
 **Files:**
@@ -704,7 +704,7 @@ loop anyway). `main()` itself now owns its full lifecycle.
 Also note the panel-send error handling now throttles: it only prints on
 the transition into a failing state and the transition back to success
 (via the `panel_error_active` flag), rather than once per failed send —
-at a ~150ms cadence, logging every single failure would spam the console
+at a ~300ms cadence, logging every single failure would spam the console
 during any real outage.
 
 - [ ] **Step 3: Verify the full end-to-end flow manually**
@@ -721,7 +721,7 @@ Expected sequence, checked against the real panel:
 4. Skip to a different track while playing — panel updates to the new
    scrolling marquee text within ~5s.
 5. Turn off the panel's Bluetooth (or move it out of range) — console prints
-   exactly one "Error enviando al panel" line (not one every ~150ms), the
+   exactly one "Error enviando al panel" line (not one every ~300ms), the
    loop keeps running (does not crash), and if the panel comes back in range
    the console prints "Panel: conexion recuperada." and frames resume.
 
