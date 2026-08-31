@@ -84,5 +84,21 @@ def get_now_playing() -> dict | None:
     }
 
 
+def draw_spotify_logo(draw: ImageDraw.ImageDraw, x: int, y: int, size: int, circle_color: tuple, bar_color: tuple) -> None:
+    draw.ellipse([x, y, x + size - 1, y + size - 1], fill=circle_color)
+    cx = x + size // 2
+    for i, dy in enumerate((6, 9, 12)):
+        half_width = size // 2 - 4 + i
+        draw.arc(
+            [cx - half_width, y + dy - 3, cx + half_width, y + dy + 3],
+            start=200, end=340, fill=bar_color, width=1,
+        )
+
+
 if __name__ == "__main__":
-    print(get_now_playing())
+    img = Image.new("RGB", (LOGO_SIZE * 2 + 10, LOGO_SIZE + 4), (0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw_spotify_logo(draw, 2, 2, LOGO_SIZE, SPOTIFY_GREEN, BG_COLOR)
+    draw_spotify_logo(draw, LOGO_SIZE + 8, 2, LOGO_SIZE, DIM_GREEN, IDLE_BG_COLOR)
+    img.resize((img.width * 10, img.height * 10), Image.NEAREST).save(SCRIPT_DIR / "_logo_preview.png")
+    print("saved _logo_preview.png")
