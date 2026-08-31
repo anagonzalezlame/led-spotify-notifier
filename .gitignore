@@ -1,0 +1,6 @@
+.env
+.cache-spotify
+__pycache__/
+*.pyc
+_spotify_frame.gif
+_spotify_idle.png
